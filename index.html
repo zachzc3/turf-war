@@ -416,11 +416,15 @@
   }
 
   // Cumulative points a single real team has banked so far (1/2/3/5/10 stacking).
+  // A bye team only banks its Divisional-round credit once the Wild Card round has
+  // actually been played out (proof the regular season is truly over and the bye is
+  // locked in) - not just because it currently sits at the top seed in a live standings
+  // snapshot that can still change every week.
   function milestonePoints(team, f){
     if (!team || !f.seededTeams[team]) return 0;
     var pts = 1;
-    var tier2 = {}; f.wc.concat(f.byes).forEach(function(t){ tier2[t]=true; });
-    if (tier2[team]) pts += 2; else return pts;
+    var reachedDivisional = f.wc.indexOf(team)!==-1 || (f.wcComplete && f.byes.indexOf(team)!==-1);
+    if (reachedDivisional) pts += 2; else return pts;
     var tier3 = {}; f.div.forEach(function(t){ tier3[t]=true; });
     if (tier3[team]) pts += 3; else return pts;
     var tier4 = {}; f.conf.forEach(function(t){ tier4[t]=true; });
