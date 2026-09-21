@@ -174,20 +174,6 @@
   /* ---------- actual bracket (read-only) ---------- */
   .conf-cols{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:14px;}
   @media (max-width:640px){.conf-cols{grid-template-columns:1fr;}}
-  .rrow{
-    display:grid;grid-template-columns:20px 1fr;gap:8px;align-items:center;
-    padding:6px 4px;border-top:1px solid var(--line);font-size:.86rem;
-  }
-  .rrow:first-child{border-top:none;}
-  .rrow-seed{font-family:'Oswald',sans-serif;font-weight:600;color:var(--ink-muted);font-size:.76rem;}
-  .rrow-team{font-weight:500;}
-  .round-block{margin-top:14px;}
-  .matchup-line{
-    padding:7px 0;border-top:1px solid var(--line);font-size:.86rem;
-  }
-  .matchup-line:first-child{border-top:none;}
-  .matchup-line b{color:var(--good);}
-  .tbd{color:var(--pending-ink);font-size:.72rem;font-style:italic;margin-left:6px;}
   .empty-hint{color:var(--pending-ink);font-size:.82rem;font-style:italic;padding:6px 0;}
   .asof-note{
     display:inline-flex;align-items:center;gap:6px;font-size:.76rem;color:var(--ink-muted);margin:2px 0 0;
@@ -196,7 +182,19 @@
   .sb-block{
     margin-top:6px;padding-top:16px;border-top:2px solid var(--line);
     display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;
+    font-size:.9rem;
   }
+  .sb-block b{color:var(--good);}
+  .tbd{color:var(--pending-ink);font-size:.72rem;font-style:italic;margin-left:6px;}
+
+  .bracket-figure{margin:0 0 16px;}
+  .bracket-figure svg{width:100%;height:auto;display:block;overflow:visible;}
+  .bracket-figure figcaption{
+    display:flex;gap:14px;flex-wrap:wrap;font-size:.7rem;color:var(--ink-muted);margin-top:8px;
+  }
+  .bracket-figure figcaption span{display:inline-flex;align-items:center;gap:5px;}
+  .swatch{width:14px;height:2px;flex:none;background:var(--line);}
+  .swatch.dashed{background:none;border-top:2px dashed var(--ink-muted);}
 
   /* ---------- prediction cards ---------- */
   .pred-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
@@ -333,10 +331,10 @@
   // Snapshot Claude/Zach pushes here by hand and redeploys. Not live-editable on this page.
   var ACTUAL = {
     seeds:{
-      AFC:['Bills','Jaguars','Chiefs','Ravens','Jets','Raiders','Bengals'],
-      NFC:['49ers','Vikings','Giants','Falcons','Bears','Eagles','Cardinals']
+      AFC:['Chiefs','Bills','Bengals','Jaguars','Raiders','Patriots','Ravens'],
+      NFC:['Vikings','Seahawks','Giants','Panthers','49ers','Eagles','Lions']
     },
-    seedsAsOf:'Sep 20, 2026 (Week 2)',
+    seedsAsOf:'Sep 20, 2026 (Week 2, via nfllivestandings.com)',
     wc:{ AFC:[null,null,null], NFC:[null,null,null] },
     div:{ AFC:[null,null], NFC:[null,null] },
     conf:{ AFC:null, NFC:null },
@@ -348,33 +346,14 @@
   function conferenceView(side, actual){
     var s = actual.seeds[side];
     var seedsKnown = s.every(function(t){ return t && t.trim(); });
-    var wcPairs = [
-      [s[1], s[6], 2, 7],
-      [s[2], s[5], 3, 6],
-      [s[3], s[4], 4, 5]
-    ];
     var wc = actual.wc[side];
     var wcComplete = wc.every(Boolean);
-
-    var divPairs = [[null,null],[null,null]];
-    if (wcComplete && seedsKnown){
-      var winners = wc.map(function(team, i){
-        var pair = wcPairs[i];
-        var seed = (team === pair[0]) ? pair[2] : pair[3];
-        return { team: team, seed: seed };
-      });
-      var sorted = winners.slice().sort(function(a,b){ return a.seed - b.seed; });
-      var best2 = [sorted[0], sorted[1]];
-      var worst = sorted[2];
-      divPairs = [ [best2[0].team, best2[1].team], [s[0], worst.team] ];
-    }
     var div = actual.div[side];
     var divComplete = div.every(Boolean);
-    var champPair = divComplete ? [div[0], div[1]] : [null, null];
     var champ = actual.conf[side];
 
-    return { side:side, seeds:s, seedsKnown:seedsKnown, wcPairs:wcPairs, wc:wc, wcComplete:wcComplete,
-             divPairs:divPairs, div:div, divComplete:divComplete, champPair:champPair, champ:champ };
+    return { side:side, seeds:s, seedsKnown:seedsKnown, wc:wc, wcComplete:wcComplete,
+             div:div, divComplete:divComplete, champ:champ };
   }
 
   function computeReal(actual){
@@ -459,6 +438,135 @@
     return { total:total, bd:bd };
   }
 
+  // ---------- live bracket diagram ----------
+
+  // One game's result: the real winner if entered, otherwise the better (lower-numbered)
+  // seed as a chalk projection. `real` flags which kind this is, for solid-vs-dashed drawing.
+  function roundResult(a, b, realWinnerName){
+    var real = !!realWinnerName;
+    var winner = real ? (a.team === realWinnerName ? a : b) : (a.seed < b.seed ? a : b);
+    return { a:a, b:b, winner:winner, real:real };
+  }
+
+  // Projects a full conference bracket from its current seeds: real results where entered,
+  // chalk (better seed wins) elsewhere - re-seeding the Divisional round exactly like the
+  // real NFL does (the 1-seed plays the worst surviving seed, the other two meet).
+  function projectConference(cv){
+    var s = cv.seeds;
+    var wc0 = roundResult({team:s[1],seed:2}, {team:s[6],seed:7}, cv.wc[0]);
+    var wc1 = roundResult({team:s[2],seed:3}, {team:s[5],seed:6}, cv.wc[1]);
+    var wc2 = roundResult({team:s[3],seed:4}, {team:s[4],seed:5}, cv.wc[2]);
+    var bye = {team:s[0], seed:1};
+    var survivors = [wc0.winner, wc1.winner, wc2.winner].slice().sort(function(a,b){ return a.seed-b.seed; });
+    var best2 = [survivors[0], survivors[1]], worst = survivors[2];
+    var div0 = roundResult(best2[0], best2[1], cv.div[0]);
+    var div1 = roundResult(bye, worst, cv.div[1]);
+    var conf = roundResult(div0.winner, div1.winner, cv.champ);
+    return { wc:[wc0,wc1,wc2], div:[div0,div1], conf:conf, bye:bye };
+  }
+
+  var BR = {
+    W:460, H:236,
+    wcX:8, wcW:116, divX:180, divW:104, confX:336, confW:76,
+    rowY:[20,52,84,116,148,180,212]
+  };
+
+  function svgTeamRow(x, y, w, seed, team, cls){
+    var fill = 'var(--surface-2)', color = 'var(--ink)', weight = '500', opacity = '1';
+    if (cls==='winner-real'){ fill='var(--good-bg)'; color='var(--good)'; weight='700'; }
+    else if (cls==='winner-proj'){ color='var(--accent)'; weight='600'; }
+    else if (cls==='loser'){ color='var(--pending-ink)'; opacity='0.75'; }
+    else if (cls==='bye'){ weight='600'; }
+    var label = cls==='bye' ? 'BYE' : esc(team||'—');
+    return '<g opacity="'+opacity+'">'+
+      '<rect x="'+x+'" y="'+(y-11)+'" width="'+w+'" height="22" rx="5" fill="'+fill+'" stroke="var(--line)"/>'+
+      '<text x="'+(x+8)+'" y="'+(y+4)+'" font-family="Oswald,sans-serif" font-size="10" fill="var(--ink-muted)">'+seed+'</text>'+
+      '<text x="'+(x+24)+'" y="'+(y+4)+'" font-family="Inter,sans-serif" font-size="12" font-weight="'+weight+'" fill="'+color+'">'+label+'</text>'+
+    '</g>';
+  }
+
+  function svgDogleg(x1, y1, xBend, y2, x2, dashed){
+    var dash = dashed ? ' stroke-dasharray="3,3"' : '';
+    var s = 'stroke="var(--line)" stroke-width="1.5" fill="none"'+dash;
+    if (y1===y2) return '<line x1="'+x1+'" y1="'+y1+'" x2="'+x2+'" y2="'+y2+'" '+s+'/>';
+    return '<polyline points="'+x1+','+y1+' '+xBend+','+y1+' '+xBend+','+y2+' '+x2+','+y2+'" '+s+'/>';
+  }
+
+  function svgElbowMerge(x1, y1, y2, xBend, x2, dashed){
+    var mid = (y1+y2)/2;
+    var dash = dashed ? ' stroke-dasharray="3,3"' : '';
+    var s = 'stroke="var(--line)" stroke-width="1.5" fill="none"'+dash;
+    return '<polyline points="'+x1+','+y1+' '+xBend+','+y1+'" '+s+'/>'+
+      '<polyline points="'+x1+','+y2+' '+xBend+','+y2+'" '+s+'/>'+
+      '<line x1="'+xBend+'" y1="'+y1+'" x2="'+xBend+'" y2="'+y2+'" '+s+'/>'+
+      '<polyline points="'+xBend+','+mid+' '+x2+','+mid+'" '+s+'/>';
+  }
+
+  function bracketSvg(cv, label){
+    var proj = projectConference(cv);
+    var wc0=proj.wc[0], wc1=proj.wc[1], wc2=proj.wc[2];
+    var rowY = BR.rowY;
+    var box0Mid=(rowY[0]+rowY[1])/2, box1Mid=(rowY[2]+rowY[3])/2, byeY=rowY[4], box3Mid=(rowY[5]+rowY[6])/2;
+    var divSlotY=[box0Mid, box1Mid, byeY, box3Mid];
+    var xBend1=(BR.wcX+BR.wcW+BR.divX)/2, xBend2=(BR.divX+BR.divW+BR.confX)/2;
+    var div0Mid=(divSlotY[0]+divSlotY[1])/2, div1Mid=(divSlotY[2]+divSlotY[3])/2;
+
+    function wcCls(res, entry){ return entry.team===res.winner.team ? (res.real?'winner-real':'winner-proj') : 'loser'; }
+
+    var s = '<svg viewBox="0 0 '+BR.W+' '+BR.H+'" role="img" aria-label="'+esc(label)+' current playoff picture, seeds one through seven">';
+
+    s += svgTeamRow(BR.wcX, rowY[0], BR.wcW, wc0.a.seed, wc0.a.team, wcCls(wc0, wc0.a));
+    s += svgTeamRow(BR.wcX, rowY[1], BR.wcW, wc0.b.seed, wc0.b.team, wcCls(wc0, wc0.b));
+    s += svgTeamRow(BR.wcX, rowY[2], BR.wcW, wc1.a.seed, wc1.a.team, wcCls(wc1, wc1.a));
+    s += svgTeamRow(BR.wcX, rowY[3], BR.wcW, wc1.b.seed, wc1.b.team, wcCls(wc1, wc1.b));
+    s += svgTeamRow(BR.wcX, byeY, BR.wcW, proj.bye.seed, proj.bye.team, 'bye');
+    s += svgTeamRow(BR.wcX, rowY[5], BR.wcW, wc2.a.seed, wc2.a.team, wcCls(wc2, wc2.a));
+    s += svgTeamRow(BR.wcX, rowY[6], BR.wcW, wc2.b.seed, wc2.b.team, wcCls(wc2, wc2.b));
+
+    s += svgElbowMerge(BR.wcX+BR.wcW, rowY[0], rowY[1], xBend1, BR.divX, !wc0.real);
+    s += svgElbowMerge(BR.wcX+BR.wcW, rowY[2], rowY[3], xBend1, BR.divX, !wc1.real);
+    s += svgElbowMerge(BR.wcX+BR.wcW, rowY[5], rowY[6], xBend1, BR.divX, !wc2.real);
+    s += svgDogleg(BR.wcX+BR.wcW, byeY, xBend1, byeY, BR.divX, !cv.wcComplete);
+
+    var originY = {};
+    originY[wc0.winner.seed] = box0Mid;
+    originY[wc1.winner.seed] = box1Mid;
+    originY[wc2.winner.seed] = box3Mid;
+    originY[proj.bye.seed] = byeY;
+    var divEntrants = [proj.div[0].a, proj.div[0].b, proj.div[1].a, proj.div[1].b];
+    divEntrants.forEach(function(entry, i){
+      var origin = originY[entry.seed];
+      var slot = divSlotY[i];
+      if (origin !== slot) s += svgDogleg(BR.wcX+BR.wcW, origin, xBend1, slot, BR.divX, !cv.wcComplete);
+    });
+    s += svgTeamRow(BR.divX, divSlotY[0], BR.divW, proj.div[0].a.seed, proj.div[0].a.team, proj.div[0].a.team===proj.div[0].winner.team ? (proj.div[0].real?'winner-real':'winner-proj') : 'loser');
+    s += svgTeamRow(BR.divX, divSlotY[1], BR.divW, proj.div[0].b.seed, proj.div[0].b.team, proj.div[0].b.team===proj.div[0].winner.team ? (proj.div[0].real?'winner-real':'winner-proj') : 'loser');
+    s += svgTeamRow(BR.divX, divSlotY[2], BR.divW, proj.div[1].a.seed, proj.div[1].a.team, proj.div[1].a.team===proj.div[1].winner.team ? (proj.div[1].real?'winner-real':'winner-proj') : 'loser');
+    s += svgTeamRow(BR.divX, divSlotY[3], BR.divW, proj.div[1].b.seed, proj.div[1].b.team, proj.div[1].b.team===proj.div[1].winner.team ? (proj.div[1].real?'winner-real':'winner-proj') : 'loser');
+
+    s += svgElbowMerge(BR.divX+BR.divW, divSlotY[0], divSlotY[1], xBend2, BR.confX, !proj.div[0].real);
+    s += svgElbowMerge(BR.divX+BR.divW, divSlotY[2], divSlotY[3], xBend2, BR.confX, !proj.div[1].real);
+
+    s += svgTeamRow(BR.confX, div0Mid, BR.confW, proj.div[0].winner.seed, proj.div[0].winner.team, proj.div[0].winner.team===proj.conf.winner.team ? (proj.conf.real?'winner-real':'winner-proj') : 'loser');
+    s += svgTeamRow(BR.confX, div1Mid, BR.confW, proj.div[1].winner.seed, proj.div[1].winner.team, proj.div[1].winner.team===proj.conf.winner.team ? (proj.conf.real?'winner-real':'winner-proj') : 'loser');
+
+    var confMid=(div0Mid+div1Mid)/2;
+    s += '<line x1="'+(BR.confX+BR.confW)+'" y1="'+confMid+'" x2="'+(BR.W-8)+'" y2="'+confMid+'" stroke="var(--line)" stroke-width="1.5"'+(proj.conf.real?'':' stroke-dasharray="3,3"')+'/>';
+    s += '<text x="'+(BR.W-8)+'" y="'+(confMid-6)+'" text-anchor="end" font-family="Oswald,sans-serif" font-size="9" letter-spacing="0.05em" fill="var(--ink-muted)">TO SB</text>';
+
+    s += '</svg>';
+    return s;
+  }
+
+  function bracketFigure(cv, label){
+    return '<figure class="bracket-figure">'+bracketSvg(cv, label)+
+      '<figcaption>'+
+        '<span><span class="swatch"></span>Confirmed</span>'+
+        '<span><span class="swatch dashed"></span>Projected (better seed wins)</span>'+
+      '</figcaption>'+
+    '</figure>';
+  }
+
   // ---------- rendering ----------
 
   function esc(s){
@@ -493,46 +601,10 @@
     }).join('');
   }
 
-  function realSeedRowsHtml(seeds){
-    return '<div class="seed-table">'+seeds.map(function(team, i){
-      return '<div class="rrow"><span class="rrow-seed">'+(i+1)+'</span><span class="rrow-team">'+esc(team||'—')+'</span></div>';
-    }).join('')+'</div>';
-  }
-
-  function pairLine(a, b, winner){
-    if (!winner) return '<div class="matchup-line">'+esc(a)+' vs '+esc(b)+'<span class="tbd">TBD</span></div>';
-    var loser = (a===winner) ? b : a;
-    return '<div class="matchup-line"><b>'+esc(winner)+'</b> def. '+esc(loser)+'</div>';
-  }
-
   function actualConfHtml(side, cv){
     var html = '<div><div class="pred-conf-label">'+side+'</div>';
-    html += realSeedRowsHtml(cv.seeds);
-
-    html += '<div class="round-block"><h3>Wild Card</h3>';
-    if (!cv.seedsKnown){
-      html += '<div class="empty-hint">Waiting on the field.</div>';
-    } else {
-      cv.wcPairs.forEach(function(pair, i){ html += pairLine(pair[0], pair[1], cv.wc[i]); });
-    }
-    html += '</div>';
-
-    html += '<div class="round-block"><h3>Divisional</h3>';
-    if (!cv.wcComplete){
-      html += '<div class="empty-hint">Waiting on Wild Card.</div>';
-    } else {
-      cv.divPairs.forEach(function(pair, i){ html += pairLine(pair[0], pair[1], cv.div[i]); });
-    }
-    html += '</div>';
-
-    html += '<div class="round-block"><h3>Conference Championship</h3>';
-    if (!cv.divComplete){
-      html += '<div class="empty-hint">Waiting on Divisional.</div>';
-    } else {
-      html += pairLine(cv.champPair[0], cv.champPair[1], cv.champ);
-    }
-    html += '</div></div>';
-    return html;
+    html += bracketFigure(cv, side);
+    return html+'</div>';
   }
 
   function renderActualPanel(real){
@@ -542,8 +614,11 @@
     var sbHtml;
     if (!(real.AFC.champ && real.NFC.champ)){
       sbHtml = '<div class="empty-hint">Waiting on both Conference Championships.</div>';
+    } else if (real.sb){
+      var sbLoser = real.AFC.champ===real.sb ? real.NFC.champ : real.AFC.champ;
+      sbHtml = '<b>'+esc(real.sb)+'</b> def. '+esc(sbLoser);
     } else {
-      sbHtml = pairLine(real.AFC.champ, real.NFC.champ, real.sb);
+      sbHtml = esc(real.AFC.champ)+' vs '+esc(real.NFC.champ)+'<span class="tbd">TBD</span>';
     }
     var sbSection = document.createElement('div');
     sbSection.className = 'sb-block';
